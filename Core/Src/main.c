@@ -18,6 +18,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "cmsis_os.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -40,8 +41,20 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
-UART_HandleTypeDef huart1;
-
+/* Definitions for pressbutton */
+osThreadId_t pressbuttonHandle;
+const osThreadAttr_t pressbutton_attributes = {
+  .name = "pressbutton",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
+};
+/* Definitions for blinkled */
+osThreadId_t blinkledHandle;
+const osThreadAttr_t blinkled_attributes = {
+  .name = "blinkled",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityBelowNormal,
+};
 /* USER CODE BEGIN PV */
 
 /* USER CODE END PV */
@@ -49,7 +62,9 @@ UART_HandleTypeDef huart1;
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
-static void MX_USART1_UART_Init(void);
+void pressingbutton(void *argument);
+void blinkingled(void *argument);
+
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -87,20 +102,52 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  MX_USART1_UART_Init();
-  //Altamash
   /* USER CODE BEGIN 2 */
 
   /* USER CODE END 2 */
 
+  /* Init scheduler */
+  osKernelInitialize();
+
+  /* USER CODE BEGIN RTOS_MUTEX */
+  /* add mutexes, ... */
+  /* USER CODE END RTOS_MUTEX */
+
+  /* USER CODE BEGIN RTOS_SEMAPHORES */
+  /* add semaphores, ... */
+  /* USER CODE END RTOS_SEMAPHORES */
+
+  /* USER CODE BEGIN RTOS_TIMERS */
+  /* start timers, add new ones, ... */
+  /* USER CODE END RTOS_TIMERS */
+
+  /* USER CODE BEGIN RTOS_QUEUES */
+  /* add queues, ... */
+  /* USER CODE END RTOS_QUEUES */
+
+  /* Create the thread(s) */
+  /* creation of pressbutton */
+  pressbuttonHandle = osThreadNew(pressingbutton, NULL, &pressbutton_attributes);
+
+  /* creation of blinkled */
+  blinkledHandle = osThreadNew(blinkingled, NULL, &blinkled_attributes);
+
+  /* USER CODE BEGIN RTOS_THREADS */
+  /* add threads, ... */
+  /* USER CODE END RTOS_THREADS */
+
+  /* USER CODE BEGIN RTOS_EVENTS */
+  /* add events, ... */
+  /* USER CODE END RTOS_EVENTS */
+
+  /* Start scheduler */
+  osKernelStart();
+
+  /* We should never get here as control is now taken by the scheduler */
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  if(HAL_UART_Transmit(&huart1," TEST ",6, 2000) !=HAL_OK){
-		  Error_Handler();
-		HAL_Delay(2000);
-	  }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -162,50 +209,41 @@ void SystemClock_Config(void)
 }
 
 /**
-  * @brief USART1 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_USART1_UART_Init(void)
-{
-
-  /* USER CODE BEGIN USART1_Init 0 */
-
-  /* USER CODE END USART1_Init 0 */
-
-  /* USER CODE BEGIN USART1_Init 1 */
-
-  /* USER CODE END USART1_Init 1 */
-  huart1.Instance = USART1;
-  huart1.Init.BaudRate = 115200;
-  huart1.Init.WordLength = UART_WORDLENGTH_8B;
-  huart1.Init.StopBits = UART_STOPBITS_1;
-  huart1.Init.Parity = UART_PARITY_NONE;
-  huart1.Init.Mode = UART_MODE_TX_RX;
-  huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
-  if (HAL_UART_Init(&huart1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN USART1_Init 2 */
-
-  /* USER CODE END USART1_Init 2 */
-
-}
-
-/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
   */
 static void MX_GPIO_Init(void)
 {
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
 /* USER CODE BEGIN MX_GPIO_Init_1 */
 /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_GPIOE_CLK_ENABLE();
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_14, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin : PA0 */
+  GPIO_InitStruct.Pin = GPIO_PIN_0;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : PE10 */
+  GPIO_InitStruct.Pin = GPIO_PIN_10;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : PE14 */
+  GPIO_InitStruct.Pin = GPIO_PIN_14;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
 
 /* USER CODE BEGIN MX_GPIO_Init_2 */
 /* USER CODE END MX_GPIO_Init_2 */
@@ -214,6 +252,80 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 
 /* USER CODE END 4 */
+
+/* USER CODE BEGIN Header_pressingbutton */
+/**
+  * @brief  Function implementing the pressbutton thread.
+  * @param  argument: Not used
+  * @retval None
+  */
+/* USER CODE END Header_pressingbutton */
+int Count = 0;
+int buttonState = GPIO_PIN_RESET;
+int prevButtonState = GPIO_PIN_RESET;
+int buttonPressed = 0;
+void pressingbutton(void *argument)
+{
+
+  for(;;)
+  {    buttonState = HAL_GPIO_ReadPin(GPIOE, GPIO_PIN_10);
+
+  if (buttonState == GPIO_PIN_RESET && prevButtonState == GPIO_PIN_SET)
+  {
+
+
+    if (HAL_GPIO_ReadPin(GPIOE, GPIO_PIN_10) == GPIO_PIN_RESET)
+    {
+      buttonPressed = 1;
+      Count++;
+    }
+  }
+  else if (buttonState == GPIO_PIN_SET && prevButtonState == GPIO_PIN_RESET)
+  {
+    buttonPressed = 0;
+  }
+
+  prevButtonState = buttonState;
+
+  osDelay(10);
+}
+
+  }
+  /* USER CODE END 5 */
+
+
+/* USER CODE BEGIN Header_blinkingled */
+/**
+* @brief Function implementing the blinkled thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_blinkingled */
+void blinkingled(void *argument)
+{
+  /* USER CODE BEGIN blinkingled */
+  /* Infinite loop */
+  for(;;)
+  {
+	    if (buttonPressed)
+	    {
+	      for (int i = 0; i < Count; i++)
+	      {
+	        HAL_GPIO_WritePin(GPIOE, GPIO_PIN_14, GPIO_PIN_SET);
+	        osDelay(1200);
+	        HAL_GPIO_WritePin(GPIOE, GPIO_PIN_14, GPIO_PIN_RESET);
+	        osDelay(1200);
+	      }
+	    }
+	    else
+	    {
+	      HAL_GPIO_WritePin(GPIOE, GPIO_PIN_14, GPIO_PIN_RESET);
+	      osDelay(100);
+	    }
+	  }
+
+  /* USER CODE END blinkingled */
+}
 
 /**
   * @brief  Period elapsed callback in non blocking mode
